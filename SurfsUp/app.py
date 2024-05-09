@@ -30,113 +30,160 @@ measurement = Base.classes.measurement
 # Create our session (link) from Python to the DB
 session = Session(bind=engine)
 
+
 #################################################
 # Flask Setup
 #################################################
 app = Flask(__name__)
 
 
-
 #################################################
 # Flask Routes
 #################################################
 
+# Homepage route
 @app.route("/")
 def homepage():
-    """Listing available api routes."""
+
+    # Return text to demonstrate the routes
     return (
+        f"Welcome to the Hawaii Climate Analysis API!<br/>"
         f"Here are all available Routes:<br/>"
         f"/api/v1.0/precipitation<br/>"
         f"/api/v1.0/stations<br/>"
         f"/api/v1.0/tobs<br/>"
-        f"/api/v1.0/<start><br/>"
-        f"/api/v1.0/<start>/<end>"
+        f"/api/v1.0/temp/start<br/>"
+        f"/api/v1.0/temp/start/end<br/>"
+        f"<br/>"
+        f"The 'start' and 'end' dates should be in the following format: MMDDYYYY"
     )
 
+# should just be a dictionary, do not make it a lsit
+# Precipitation route
 @app.route("/api/v1.0/precipitation")
 def precipitation():
+
+    # Find the most recent date, and find the date a year before
     recent_date = session.query(measurement.date).order_by(measurement.date.desc()).first()
     recent_dt = dt.datetime.strptime(recent_date.date, "%Y-%m-%d")
-    earliest_month = recent_dt - dt.timedelta(days=366)
+    earliest_dt = recent_dt - dt.timedelta(days=366)
 
-    last_months = session.query(measurement.date, measurement.prcp).\
-        filter(measurement.date >= earliest_month).all()
+    # Query the database for dates and precipitation since the year before
+    precipitation = session.query(measurement.date, measurement.prcp).\
+        filter(measurement.date >= earliest_dt).all()
     
     session.close()
 
-    latest_prcp = []
-    for date, prcp in last_months:
-        prcp_dict = {}
+    # Create a dictionary with the dates and precipitation as keys and values
+    prcp_dict = {}
+    for date, prcp in precipitation:
         prcp_dict[date] = prcp
-        latest_prcp.append(prcp_dict)
     
-    return jsonify(latest_prcp)
+    # Return the dictionary with jsonify
+    return jsonify(prcp_dict)
 
 
+# Stations route
 @app.route("/api/v1.0/stations")
 def stations():
-    stations = session.query(station.name).all()
+
+    # Query database for all the station IDs
+    stations = session.query(station.station).all()
 
     session.close()
 
+    # Convert the tuple of station IDs into a list
     stations_list = list(np.ravel(stations))
 
-    return jsonify(stations_list)
+    # Create dictionary for stations
+    stations_dict = {'stations': stations_list}
+
+    # Return the list of station IDs with jsonify
+    return jsonify(stations_dict)
 
 
+# TOBS route
 @app.route("/api/v1.0/tobs")
 def tobs():
 
+    # Find the most recent date, and get the earliest date from the year prior
     recent_date = session.query(measurement.date).order_by(measurement.date.desc()).first()
     recent_dt = dt.datetime.strptime(recent_date.date, "%Y-%m-%d")
-    earliest_month = recent_dt - dt.timedelta(days=366)
+    earliest_dt = recent_dt - dt.timedelta(days=366)
 
-
+    # Query the database for the station with the most activity
     active_station = session.query(measurement.station, func.count(measurement.station)).\
         group_by(measurement.station).order_by(func.count(measurement.station).desc()).first()
+    
+    # Extract the station's ID
     active_station_id = active_station[0]
-    last_months_temp = session.query(measurement.tobs).\
-        filter(measurement.date >= earliest_month).\
+
+    # Query the database for the most active station's tobs data
+    temperatures = session.query(measurement.tobs).\
+        filter(measurement.date >= earliest_dt).\
             filter(measurement.station == active_station_id).all()
     
     session.close()
 
-    tobs = [i[0] for i in last_months_temp]
+    # Convert the queried data into a list
+    tobs = [i[0] for i in temperatures]
 
-    return jsonify(tobs)
+    # Create dictionary for the tobs data
+    tobs_dict = {'tobs': tobs}
+
+    # Return the dictionary of tobs data with jsonify
+    return jsonify(tobs_dict)
 
 
-@app.route("/api/v1.0/<start>")
+# Start date route
+@app.route("/api/v1.0/temp/<start>")
 def specific_start(start):
-    recent_dt = dt.datetime.strptime(start, "%Y-%m-%d")
 
-    station_stats = session.query(func.min(measurement.tobs), func.max(measurement.tobs),\
-                              func.avg(measurement.tobs)).\
-                                filter(measurement.date >= recent_dt).all()
+    # Convert the start date into datetime
+    start_dt = dt.datetime.strptime(start, "%m%d%Y")
+
+    # Query the database for the min, max, and average tobs since the provided start date
+    station_stats = session.query(func.min(measurement.tobs), func.avg(measurement.tobs),\
+                                  func.max(measurement.tobs)).\
+                                filter(measurement.date >= start_dt).all()
     
     session.close()
 
+    # Convert tuple of responses into a list
     stats_list = list(np.ravel(station_stats))
+    
+    # Create dictionary for the responses
+    stats_dict = {'temps': stats_list}
 
-    return stats_list
+    # Return the dictionary
+    return stats_dict
 
 
-@app.route("/api/v1.0/<start>/<end>")
+# Start/End dates route
+@app.route("/api/v1.0/temp/<start>/<end>")
 def specific_start_end(start, end):
-    start_dt = dt.datetime.strptime(start, "%Y-%m-%d")
-    end_dt = dt.datetime.strptime(end, "%Y-%m-%d")
 
+    # Convert provided start and end dates into datetime
+    start_dt = dt.datetime.strptime(start, "%m%d%Y")
+    end_dt = dt.datetime.strptime(end, "%m%d%Y")
 
-    station_stats = session.query(func.min(measurement.tobs), func.max(measurement.tobs),\
-                              func.avg(measurement.tobs)).\
+    # Query the database for min, max, and avg tobs
+    # Filtered for data between the provided start and end dates
+    station_stats = session.query(func.min(measurement.tobs), func.avg(measurement.tobs),\
+                                  func.max(measurement.tobs)).\
                                 filter(measurement.date >= start_dt).\
                                     filter(measurement.date <= end_dt).all()
     
     session.close()
 
+    # Convert response tuple into a list
     stats_list = list(np.ravel(station_stats))
 
-    return stats_list
+    # Create dictionary for the responses
+    stats_dict = {'temps': stats_list}
+
+    # Return the dictionary
+    return stats_dict
 
 
 if __name__ == '__main__':
