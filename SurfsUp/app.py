@@ -86,7 +86,57 @@ def stations():
 
 @app.route("/api/v1.0/tobs")
 def tobs():
+
+    recent_date = session.query(measurement.date).order_by(measurement.date.desc()).first()
+    recent_dt = dt.datetime.strptime(recent_date.date, "%Y-%m-%d")
+    earliest_month = recent_dt - dt.timedelta(days=366)
+
+
+    active_station = session.query(measurement.station, func.count(measurement.station)).\
+        group_by(measurement.station).order_by(func.count(measurement.station).desc()).first()
+    active_station_id = active_station[0]
+    last_months_temp = session.query(measurement.tobs).\
+        filter(measurement.date >= earliest_month).\
+            filter(measurement.station == active_station_id).all()
     
+    session.close()
+
+    tobs = [i[0] for i in last_months_temp]
+
+    return jsonify(tobs)
+
+
+@app.route("/api/v1.0/<start>")
+def specific_start(start):
+    recent_dt = dt.datetime.strptime(start, "%Y-%m-%d")
+
+    station_stats = session.query(func.min(measurement.tobs), func.max(measurement.tobs),\
+                              func.avg(measurement.tobs)).\
+                                filter(measurement.date >= recent_dt).all()
+    
+    session.close()
+
+    stats_list = list(np.ravel(station_stats))
+
+    return stats_list
+
+
+@app.route("/api/v1.0/<start>/<end>")
+def specific_start_end(start, end):
+    start_dt = dt.datetime.strptime(start, "%Y-%m-%d")
+    end_dt = dt.datetime.strptime(end, "%Y-%m-%d")
+
+
+    station_stats = session.query(func.min(measurement.tobs), func.max(measurement.tobs),\
+                              func.avg(measurement.tobs)).\
+                                filter(measurement.date >= start_dt).\
+                                    filter(measurement.date <= end_dt).all()
+    
+    session.close()
+
+    stats_list = list(np.ravel(station_stats))
+
+    return stats_list
 
 
 if __name__ == '__main__':
