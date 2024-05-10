@@ -37,6 +37,22 @@ session = Session(bind=engine)
 app = Flask(__name__)
 
 
+# Find the most recent date, and get the earliest date from the year prior
+# To be used for '/precipitation' and 'tobs' routes
+recent_date = session.query(measurement.date).order_by(measurement.date.desc()).first()
+recent_dt = dt.datetime.strptime(recent_date.date, "%Y-%m-%d")
+earliest_dt = recent_dt - dt.timedelta(days=366)
+
+# Function to convert a tuple into a list for queries
+def tuple_to_list(tuple):
+    return list(np.ravel(tuple))
+
+# Function to convert dynamic routes' start and end dates into datetime
+def date_time(date):
+    return dt.datetime.strptime(date, "%m%d%Y")
+
+
+
 #################################################
 # Flask Routes
 #################################################
@@ -63,12 +79,7 @@ def homepage():
 @app.route("/api/v1.0/precipitation")
 def precipitation():
 
-    # Find the most recent date, and find the date a year before
-    recent_date = session.query(measurement.date).order_by(measurement.date.desc()).first()
-    recent_dt = dt.datetime.strptime(recent_date.date, "%Y-%m-%d")
-    earliest_dt = recent_dt - dt.timedelta(days=366)
-
-    # Query the database for dates and precipitation since the year before
+    # Query the database for dates and precipitation for the last year
     precipitation = session.query(measurement.date, measurement.prcp).\
         filter(measurement.date >= earliest_dt).all()
     
@@ -93,7 +104,7 @@ def stations():
     session.close()
 
     # Convert the tuple of station IDs into a list
-    stations_list = list(np.ravel(stations))
+    stations_list = tuple_to_list(stations)
 
     # Create dictionary for stations
     stations_dict = {'stations': stations_list}
@@ -106,11 +117,6 @@ def stations():
 @app.route("/api/v1.0/tobs")
 def tobs():
 
-    # Find the most recent date, and get the earliest date from the year prior
-    recent_date = session.query(measurement.date).order_by(measurement.date.desc()).first()
-    recent_dt = dt.datetime.strptime(recent_date.date, "%Y-%m-%d")
-    earliest_dt = recent_dt - dt.timedelta(days=366)
-
     # Query the database for the station with the most activity
     active_station = session.query(measurement.station, func.count(measurement.station)).\
         group_by(measurement.station).order_by(func.count(measurement.station).desc()).first()
@@ -118,7 +124,7 @@ def tobs():
     # Extract the station's ID
     active_station_id = active_station[0]
 
-    # Query the database for the most active station's tobs data
+    # Query the database for the most active station's tobs data for the last year
     temperatures = session.query(measurement.tobs).\
         filter(measurement.date >= earliest_dt).\
             filter(measurement.station == active_station_id).all()
@@ -140,7 +146,7 @@ def tobs():
 def specific_start(start):
 
     # Convert the start date into datetime
-    start_dt = dt.datetime.strptime(start, "%m%d%Y")
+    start_dt = date_time(start)
 
     # Query the database for the min, max, and average tobs since the provided start date
     station_stats = session.query(func.min(measurement.tobs), func.avg(measurement.tobs),\
@@ -150,7 +156,7 @@ def specific_start(start):
     session.close()
 
     # Convert tuple of responses into a list
-    stats_list = list(np.ravel(station_stats))
+    stats_list = tuple_to_list(station_stats)
     
     # Create dictionary for the responses
     stats_dict = {'temps': stats_list}
@@ -164,8 +170,8 @@ def specific_start(start):
 def specific_start_end(start, end):
 
     # Convert provided start and end dates into datetime
-    start_dt = dt.datetime.strptime(start, "%m%d%Y")
-    end_dt = dt.datetime.strptime(end, "%m%d%Y")
+    start_dt = date_time(start)
+    end_dt = date_time(end)
 
     # Query the database for min, max, and avg tobs
     # Filtered for data between the provided start and end dates
@@ -177,7 +183,7 @@ def specific_start_end(start, end):
     session.close()
 
     # Convert response tuple into a list
-    stats_list = list(np.ravel(station_stats))
+    stats_list = tuple_to_list(station_stats)
 
     # Create dictionary for the responses
     stats_dict = {'temps': stats_list}
